@@ -44,8 +44,10 @@ view model =
                         ]
                             |> row [ spacing 20 ]
                     }
+                , sourceCode
+                    |> el [ centerX ]
                 ]
-                    |> row [ spacing 20, centerX ]
+                    |> column [ spacing 20, centerX ]
             )
             (\w ->
                 [ [ text "Wallet Loaded:"
@@ -114,8 +116,11 @@ view model =
                         , Border.rounded 10
                         , Border.width 1
                         ]
-                , btnWhite Logout "Logout"
-                    |> el [ alignRight ]
+                , [ sourceCode
+                  , btnWhite Logout "Logout"
+                        |> el [ alignRight ]
+                  ]
+                    |> row [ width fill ]
                 ]
                     |> column [ spacing 20, width fill ]
             )
@@ -132,6 +137,7 @@ view model =
             }
             [ width fill
             , height fill
+            , scrollbarY
             , Font.size 17
             , monospaceFont
             , Background.gradient
@@ -142,6 +148,13 @@ view model =
                     ]
                 }
             ]
+
+
+sourceCode =
+    newTabLink [ hover, Font.underline ]
+        { url = "https://github.com/ronanyeah/sui-zk-wallet"
+        , label = text "View source code"
+        }
 
 
 icon : Icon msg -> Int -> Element msg
