@@ -15,7 +15,7 @@ interface Ports {
     amount: string;
   }>;
   logout: PortOut<null>;
-  walletCb: PortIn<string>;
+  walletCb: PortIn<Wallet>;
   sigCb: PortIn<string>;
   balanceCb: PortIn<string>;
 }
@@ -28,4 +28,10 @@ interface PortIn<T> {
   send: (_: T) => void;
 }
 
-export { ElmApp };
+interface Wallet {
+  address: string;
+  ephPublic: string;
+  googleSub: string;
+}
+
+export { ElmApp, Wallet };

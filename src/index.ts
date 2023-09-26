@@ -1,6 +1,6 @@
 const { Elm } = require("./Main.elm");
 
-import { ElmApp } from "./ports";
+import { ElmApp, Wallet } from "./ports";
 import { toBigIntBE } from "bigint-buffer";
 import { decodeJwt } from "jose";
 import {
@@ -36,10 +36,8 @@ const provider = new SuiClient({
   url: getFullnodeUrl(config.network as any),
 });
 
-const STATE = "STATE";
-const JWT = "JWT";
-const INPUTS = "INPUTS";
-const ADDRESS = "ADDR";
+const PARAMS = "PARAMS";
+const ACCOUNT = "ACCOUNT";
 
 interface Params {
   epoch: number;
@@ -48,14 +46,21 @@ interface Params {
   ephPrivate: string;
 }
 
+interface ZkAccount {
+  inputs: ZkSignatureInputs;
+  jwt: string;
+  sub: string;
+  address: string;
+}
+
 (async () => {
   const qs = new URLSearchParams(window.location.href);
   const jwt = qs.get("id_token")!;
-  const savedAddress = localStorage.getItem(ADDRESS);
+  const savedWallet = getWallet();
 
   const app: ElmApp = Elm.Main.init({
     node: document.getElementById("app"),
-    flags: { addr: savedAddress, isRegistering: Boolean(jwt) },
+    flags: { wallet: savedWallet, isRegistering: Boolean(jwt) },
   });
 
   const refreshBalance = async (wallet: string) => {
@@ -63,14 +68,14 @@ interface Params {
     app.ports.balanceCb.send(bal.totalBalance);
   };
 
-  if (savedAddress) {
-    refreshBalance(savedAddress);
+  if (savedWallet) {
+    refreshBalance(savedWallet.address);
   }
 
   if (jwt) {
     window.history.replaceState({}, document.title, "/");
 
-    const state: Params = JSON.parse(localStorage.getItem(STATE)!);
+    const params: Params = JSON.parse(localStorage.getItem(PARAMS)!);
 
     const { salt }: { salt: string } = await fetch(proxy(config.salt), {
       method: "POST",
@@ -84,9 +89,9 @@ interface Params {
 
     const partialZk = createPartialZKSignature(
       jwt,
-      new Ed25519PublicKey(state.ephPublic),
-      state.epoch,
-      BigInt(state.randomness),
+      new Ed25519PublicKey(params.ephPublic),
+      params.epoch,
+      BigInt(params.randomness),
       salt
     );
 
@@ -114,20 +119,25 @@ interface Params {
       addressSeed: addressSeed.toString(),
     };
 
-    localStorage.setItem(INPUTS, JSON.stringify(inputs));
-    localStorage.setItem(JWT, jwt);
-    localStorage.setItem(ADDRESS, addr);
+    localStorage.setItem(
+      ACCOUNT,
+      JSON.stringify({ inputs, jwt, sub: jwtParsed.sub!, address: addr })
+    );
 
-    app.ports.walletCb.send(addr);
+    app.ports.walletCb.send({
+      address: addr,
+      ephPublic: params.ephPublic,
+      googleSub: jwtParsed.sub!,
+    });
 
     refreshBalance(addr);
   }
 
   app.ports.airdrop.subscribe(() => {
-    const addr = localStorage.getItem(ADDRESS)!;
+    const wallet = getWallet()!;
     requestSuiFromFaucetV0({
       host: getFaucetHost(config.network as any),
-      recipient: addr,
+      recipient: wallet.address,
     })
       .then((res) => {
         console.log(res);
@@ -141,8 +151,8 @@ interface Params {
   });
 
   app.ports.getBalance.subscribe(() => {
-    const addr = localStorage.getItem(ADDRESS)!;
-    refreshBalance(addr);
+    const wallet = getWallet()!;
+    refreshBalance(wallet.address);
   });
 
   app.ports.copy.subscribe((val) => {
@@ -150,7 +160,7 @@ interface Params {
   });
 
   app.ports.logout.subscribe(() => {
-    [STATE, JWT, INPUTS, ADDRESS].forEach((k) => {
+    [PARAMS, ACCOUNT].forEach((k) => {
       localStorage.removeItem(k);
     });
   });
@@ -160,17 +170,13 @@ interface Params {
     const [coin] = txb.splitCoins(txb.gas, [txb.pure(amount)]);
     txb.transferObjects([coin], txb.pure(target));
 
-    const state: Params = JSON.parse(localStorage.getItem(STATE) as any);
-    const inputs: ZkSignatureInputs = JSON.parse(
-      localStorage.getItem(INPUTS) as any
-    );
+    const params: Params = JSON.parse(localStorage.getItem(PARAMS)!);
+    const account: ZkAccount = JSON.parse(localStorage.getItem(ACCOUNT)!);
 
-    const addr: string = localStorage.getItem(ADDRESS)!;
-
-    txb.setSender(addr);
+    txb.setSender(account.address);
 
     const ephemeralKeyPair = Ed25519Keypair.fromSecretKey(
-      Buffer.from(state.ephPrivate, "base64")
+      Buffer.from(params.ephPrivate, "base64")
     );
 
     const preSign = await txb.sign({
@@ -179,8 +185,8 @@ interface Params {
     });
 
     const zkSignature = getZkSignature({
-      inputs: inputs,
-      maxEpoch: state.epoch,
+      inputs: account.inputs,
+      maxEpoch: params.epoch,
       userSignature: preSign.signature,
     });
 
@@ -193,6 +199,21 @@ interface Params {
   });
 })().catch(console.error);
 
+function getWallet(): Wallet | null {
+  const state = localStorage.getItem(ACCOUNT);
+  const state2 = localStorage.getItem(PARAMS);
+  if (!state || !state2) {
+    return null;
+  }
+  const account: ZkAccount = JSON.parse(state);
+  const params: Params = JSON.parse(state2);
+  return {
+    address: account.address,
+    ephPublic: params.ephPublic,
+    googleSub: account.sub,
+  };
+}
+
 async function zkLogin() {
   const { epoch } = await provider.getLatestSuiSystemState();
 
@@ -200,7 +221,7 @@ async function zkLogin() {
   const ephemeralKeyPair = new Ed25519Keypair();
 
   const randomness = generateRandomness();
-  const state: Params = {
+  const params: Params = {
     epoch: maxEpoch,
     randomness: randomness.toString(),
     ephPublic: ephemeralKeyPair.getPublicKey().toBase64(),
@@ -212,7 +233,7 @@ async function zkLogin() {
     randomness
   );
 
-  const params = new URLSearchParams({
+  const queryParams = new URLSearchParams({
     state: new URLSearchParams({
       redirect_uri: window.location.origin + "/",
     }).toString(),
@@ -224,9 +245,9 @@ async function zkLogin() {
     nonce: nonce,
   });
 
-  const loginURL = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+  const loginURL = `https://accounts.google.com/o/oauth2/v2/auth?${queryParams}`;
 
-  localStorage.setItem(STATE, JSON.stringify(state));
+  localStorage.setItem(PARAMS, JSON.stringify(params));
 
   window.location.replace(loginURL);
 }

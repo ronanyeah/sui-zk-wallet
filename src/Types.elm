@@ -1,8 +1,10 @@
 module Types exposing (Flags, Model, Msg(..))
 
+import Ports
+
 
 type alias Model =
-    { wallet : Maybe String
+    { wallet : Maybe Ports.Wallet
     , balance : Int
     , fieldAddr : String
     , fieldAmt : String
@@ -12,13 +14,13 @@ type alias Model =
 
 
 type alias Flags =
-    { addr : Maybe String
+    { wallet : Maybe Ports.Wallet
     , isRegistering : Bool
     }
 
 
 type Msg
-    = WalletCb String
+    = WalletCb Ports.Wallet
     | Transfer
     | SigCb String
     | FieldChange String

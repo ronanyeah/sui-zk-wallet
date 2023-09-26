@@ -19,7 +19,7 @@ main =
 
 init : Flags -> ( Model, Cmd Msg )
 init flags =
-    ( { wallet = flags.addr
+    ( { wallet = flags.wallet
       , fieldAddr = ""
       , fieldAmt = ""
       , txs = []

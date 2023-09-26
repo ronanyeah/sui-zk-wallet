@@ -9,7 +9,12 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         WalletCb x ->
-            ( { model | wallet = Just x, registering = False }, Cmd.none )
+            ( { model
+                | wallet = Just x
+                , registering = False
+              }
+            , Cmd.none
+            )
 
         Airdrop ->
             ( model, Ports.airdrop () )

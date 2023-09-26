@@ -1,5 +1,14 @@
 port module Ports exposing (..)
 
+
+type alias Wallet =
+    { address : String
+    , ephPublic : String
+    , googleSub : String
+    }
+
+
+
 -- OUT
 
 
@@ -28,7 +37,7 @@ port logout : () -> Cmd msg
 -- IN
 
 
-port walletCb : (String -> msg) -> Sub msg
+port walletCb : (Wallet -> msg) -> Sub msg
 
 
 port sigCb : (String -> msg) -> Sub msg

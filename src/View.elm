@@ -53,11 +53,11 @@ view model =
                 [ [ text "Wallet Loaded:"
                         |> el [ Font.bold ]
                   , [ newTabLink [ hover, Font.underline ]
-                        { url = "https://explorer.sui.io/address/" ++ w ++ "?network=" ++ env
+                        { url = "https://explorer.sui.io/address/" ++ w.address ++ "?network=" ++ env
                         , label =
-                            text <| (String.left 8 w ++ "..." ++ String.right 8 w)
+                            text <| (String.left 8 w.address ++ "..." ++ String.right 8 w.address)
                         }
-                    , btnWhite (Copy w) "Copy"
+                    , btnWhite (Copy w.address) "Copy"
                     ]
                         |> row [ spacing 20 ]
                   ]
@@ -72,12 +72,26 @@ view model =
                   , btnWhite GetBalance "Refresh"
                   ]
                     |> row [ spacing 10 ]
-                , [ text "Network:"
+                , [ text "Ephemeral public key:"
                         |> el [ Font.bold ]
-                  , text env
+                  , [ text w.ephPublic ]
+                        |> paragraph [ Font.size 12 ]
                   ]
-                    |> row [ spacing 10 ]
-                , btnWhite Airdrop "Request airdrop"
+                    |> column [ spacing 10 ]
+                , [ text "Google JWT sub:"
+                        |> el [ Font.bold ]
+                  , text w.googleSub
+                  ]
+                    |> column [ spacing 10 ]
+                , [ [ text "Network:"
+                        |> el [ Font.bold ]
+                    , text env
+                    ]
+                        |> row [ spacing 10 ]
+                  , btnWhite Airdrop "Request airdrop"
+                        |> el [ alignRight ]
+                  ]
+                    |> wrappedRow [ spacing 10, width fill ]
                 , [ text "Transfer SUI"
                         |> el [ Font.bold ]
                   , Input.text [ width fill ]
