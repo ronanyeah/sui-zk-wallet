@@ -5,12 +5,11 @@ import { toBigIntBE } from "bigint-buffer";
 import { decodeJwt } from "jose";
 import {
   generateNonce,
-  getZkSignature,
+  getZkLoginSignature,
   generateRandomness,
   genAddressSeed,
-  jwtToAddress,
-  ZkSignatureInputs,
 } from "@mysten/zklogin";
+import { computeZkLoginAddressFromSeed } from "@mysten/sui.js/zklogin";
 import { SuiClient, getFullnodeUrl } from "@mysten/sui.js/client";
 import { requestSuiFromFaucetV0, getFaucetHost } from "@mysten/sui.js/faucet";
 import { TransactionBlock } from "@mysten/sui.js/transactions";
@@ -19,18 +18,19 @@ import {
   Ed25519PublicKey,
 } from "@mysten/sui.js/keypairs/ed25519";
 
+//type ZkSignatureInputs = typeof getZkLoginSignature;
+
 if (window.navigator.serviceWorker) {
   window.navigator.serviceWorker.register("/sw.js");
 }
 
 const config = {
-  //network: "testnet",
-  //salt: "http://salt.api-testnet.mystenlabs.com/get_salt",
   network: "devnet",
-  salt: "http://salt.api-devnet.mystenlabs.com/get_salt",
+  //network: "testnet",
+  //network: "mainnet",
 };
 
-const proxy = (url: string) => "https://cors-proxy.fringe.zone/" + url;
+//const proxy = (url: string) => "https://cors-proxy.fringe.zone/" + url;
 
 const provider = new SuiClient({
   url: getFullnodeUrl(config.network as any),
@@ -47,7 +47,8 @@ interface Params {
 }
 
 interface ZkAccount {
-  inputs: ZkSignatureInputs;
+  inputs: any;
+  //inputs: ZkSignatureInputs;
   jwt: string;
   sub: string;
   address: string;
@@ -73,64 +74,78 @@ interface ZkAccount {
   }
 
   if (jwt) {
-    window.history.replaceState({}, document.title, "/");
+    (async () => {
+      window.history.replaceState({}, document.title, "/");
 
-    const params: Params = JSON.parse(localStorage.getItem(PARAMS)!);
+      const store = localStorage.getItem(PARAMS);
 
-    const { salt }: { salt: string } = await fetch(proxy(config.salt), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        token: jwt,
-      }),
-    }).then((res) => res.json());
+      if (!store) {
+        return;
+      }
 
-    const partialZk = createPartialZKSignature(
-      jwt,
-      new Ed25519PublicKey(params.ephPublic),
-      params.epoch,
-      BigInt(params.randomness),
-      salt
-    );
+      const params: Params = JSON.parse(store);
 
-    const proofs = await fetch(proxy("https://prover.mystenlabs.com/v1"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(partialZk),
-    }).then((res) => res.json());
+      const salt = BigInt("123");
+      //const { salt }: { salt: string } = await fetch(proxy("http://salt.api.mystenlabs.com/get_salt"), {
+      //method: "POST",
+      //headers: {
+      //"Content-Type": "application/json",
+      //},
+      //body: JSON.stringify({
+      //token: jwt,
+      //}),
+      //}).then((res) => res.json());
 
-    const jwtParsed = decodeJwt(jwt);
+      const _partialZk = createPartialZKSignature(
+        jwt,
+        new Ed25519PublicKey(params.ephPublic),
+        params.epoch,
+        BigInt(params.randomness),
+        salt
+      );
 
-    const addressSeed = genAddressSeed(
-      BigInt(salt),
-      "sub",
-      jwtParsed.sub!,
-      Array.isArray(jwtParsed.aud) ? jwtParsed.aud[0] : jwtParsed.aud!
-    );
+      // Client id needs to be whitelisted
+      const proofs =
+        //await fetch(proxy("https://prover.mystenlabs.com/v1"), {
+        //method: "POST",
+        //headers: {
+        //"Content-Type": "application/json",
+        //},
+        //body: JSON.stringify(partialZk),
+        //}).then((res) => res.json())
+        {};
 
-    const addr = jwtToAddress(jwt, BigInt(salt));
+      const jwtParsed = decodeJwt(jwt);
 
-    const inputs: ZkSignatureInputs = {
-      ...proofs,
-      addressSeed: addressSeed.toString(),
-    };
+      const addressSeed = genAddressSeed(
+        salt,
+        "sub",
+        jwtParsed.sub!,
+        Array.isArray(jwtParsed.aud) ? jwtParsed.aud[0] : jwtParsed.aud!
+      );
 
-    localStorage.setItem(
-      ACCOUNT,
-      JSON.stringify({ inputs, jwt, sub: jwtParsed.sub!, address: addr })
-    );
+      const addr = computeZkLoginAddressFromSeed(addressSeed, jwtParsed.iss!);
+      //const addr = jwtToAddress(jwt, salt);
 
-    app.ports.walletCb.send({
-      address: addr,
-      ephPublic: params.ephPublic,
-      googleSub: jwtParsed.sub!,
-    });
+      //const inputs: ZkSignatureInputs = {
+      const inputs = {
+        ...proofs,
+        addressSeed: addressSeed.toString(),
+      };
 
-    refreshBalance(addr);
+      localStorage.setItem(
+        ACCOUNT,
+        JSON.stringify({ inputs, jwt, sub: jwtParsed.sub!, address: addr })
+      );
+
+      app.ports.walletCb.send({
+        address: addr,
+        ephPublic: params.ephPublic,
+        googleSub: jwtParsed.sub!,
+      });
+
+      refreshBalance(addr);
+    })().catch(console.error);
   }
 
   app.ports.airdrop.subscribe(() => {
@@ -184,7 +199,7 @@ interface ZkAccount {
       signer: ephemeralKeyPair,
     });
 
-    const zkSignature = getZkSignature({
+    const zkSignature = getZkLoginSignature({
       inputs: account.inputs,
       maxEpoch: params.epoch,
       userSignature: preSign.signature,
@@ -257,7 +272,7 @@ function createPartialZKSignature(
   ephemeralPublicKey: Ed25519PublicKey,
   maxEpoch: number,
   jwtRandomness: bigint,
-  userSalt: string
+  userSalt: bigint
 ) {
   return {
     jwt,
@@ -266,7 +281,7 @@ function createPartialZKSignature(
     ).toString(),
     maxEpoch,
     jwtRandomness: jwtRandomness.toString(),
-    salt: userSalt,
+    salt: userSalt.toString(),
     keyClaimName: "sub",
   };
 }

@@ -4,8 +4,8 @@
     "watch": "webpack serve"
   },
   "dependencies": {
-    "@mysten/sui.js": "^0.42.0",
-    "@mysten/zklogin": "^0.1.4",
+    "@mysten/sui.js": "^0.44.0",
+    "@mysten/zklogin": "^0.3.0",
     "bigint-buffer": "^1.1.5",
     "buffer": "^6.0.3",
     "elm": "^0.19.1-3",
