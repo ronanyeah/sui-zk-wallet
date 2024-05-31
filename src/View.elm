@@ -130,8 +130,6 @@ view model =
                         , Border.rounded 10
                         , Border.width 1
                         ]
-                    -- TODO: Can't sign transactions without a prover
-                    |> when False
                 , [ sourceCode
                   , btnWhite Logout "Logout"
                         |> el [ alignRight ]
@@ -233,6 +231,6 @@ formatFloat =
 
 
 env =
-    --"testnet"
     --"mainnet"
-    "devnet"
+    --"devnet"
+    "testnet"

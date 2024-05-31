@@ -9,28 +9,23 @@ import {
   generateRandomness,
   genAddressSeed,
 } from "@mysten/zklogin";
-import { computeZkLoginAddressFromSeed } from "@mysten/sui.js/zklogin";
-import { SuiClient, getFullnodeUrl } from "@mysten/sui.js/client";
-import { requestSuiFromFaucetV0, getFaucetHost } from "@mysten/sui.js/faucet";
-import { TransactionBlock } from "@mysten/sui.js/transactions";
-import {
-  Ed25519Keypair,
-  Ed25519PublicKey,
-} from "@mysten/sui.js/keypairs/ed25519";
-
-//type ZkSignatureInputs = typeof getZkLoginSignature;
+import { decodeSuiPrivateKey } from "@mysten/sui/cryptography";
+import { computeZkLoginAddressFromSeed } from "@mysten/sui/zklogin";
+import { bcs } from "@mysten/sui/bcs";
+import { SuiClient, getFullnodeUrl } from "@mysten/sui/client";
+import { requestSuiFromFaucetV0, getFaucetHost } from "@mysten/sui/faucet";
+import { Transaction } from "@mysten/sui/transactions";
+import { Ed25519Keypair, Ed25519PublicKey } from "@mysten/sui/keypairs/ed25519";
 
 if (window.navigator.serviceWorker) {
   window.navigator.serviceWorker.register("/sw.js");
 }
 
 const config = {
-  network: "devnet",
-  //network: "testnet",
+  network: "testnet",
+  //network: "devnet",
   //network: "mainnet",
 };
-
-//const proxy = (url: string) => "https://cors-proxy.fringe.zone/" + url;
 
 const provider = new SuiClient({
   url: getFullnodeUrl(config.network as any),
@@ -86,7 +81,7 @@ interface ZkAccount {
       const params: Params = JSON.parse(store);
 
       const salt = BigInt("123");
-      //const { salt }: { salt: string } = await fetch(proxy("http://salt.api.mystenlabs.com/get_salt"), {
+      //const { salt }: { salt: string } = await fetch("http://salt.api.mystenlabs.com/get_salt", {
       //method: "POST",
       //headers: {
       //"Content-Type": "application/json",
@@ -96,7 +91,7 @@ interface ZkAccount {
       //}),
       //}).then((res) => res.json());
 
-      const _partialZk = createPartialZKSignature(
+      const partialZk = createPartialZKSignature(
         jwt,
         new Ed25519PublicKey(params.ephPublic),
         params.epoch,
@@ -105,15 +100,13 @@ interface ZkAccount {
       );
 
       // Client id needs to be whitelisted
-      const proofs =
-        //await fetch(proxy("https://prover.mystenlabs.com/v1"), {
-        //method: "POST",
-        //headers: {
-        //"Content-Type": "application/json",
-        //},
-        //body: JSON.stringify(partialZk),
-        //}).then((res) => res.json())
-        {};
+      const proofs = await fetch("https://prover.mystenlabs.com/v1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(partialZk),
+      }).then((res) => res.json());
 
       const jwtParsed = decodeJwt(jwt);
 
@@ -125,9 +118,7 @@ interface ZkAccount {
       );
 
       const addr = computeZkLoginAddressFromSeed(addressSeed, jwtParsed.iss!);
-      //const addr = jwtToAddress(jwt, salt);
 
-      //const inputs: ZkSignatureInputs = {
       const inputs = {
         ...proofs,
         addressSeed: addressSeed.toString(),
@@ -180,38 +171,40 @@ interface ZkAccount {
     });
   });
 
-  app.ports.transfer.subscribe(async ({ target, amount }) => {
-    const txb = new TransactionBlock();
-    const [coin] = txb.splitCoins(txb.gas, [txb.pure(amount)]);
-    txb.transferObjects([coin], txb.pure(target));
+  app.ports.transfer.subscribe(({ target, amount }) =>
+    (async () => {
+      const txb = new Transaction();
+      const [coin] = txb.splitCoins(txb.gas, [bcs.u64().serialize(amount)]);
+      txb.transferObjects([coin], bcs.Address.serialize(target));
 
-    const params: Params = JSON.parse(localStorage.getItem(PARAMS)!);
-    const account: ZkAccount = JSON.parse(localStorage.getItem(ACCOUNT)!);
+      const params: Params = JSON.parse(localStorage.getItem(PARAMS)!);
+      const account: ZkAccount = JSON.parse(localStorage.getItem(ACCOUNT)!);
 
-    txb.setSender(account.address);
+      txb.setSender(account.address);
 
-    const ephemeralKeyPair = Ed25519Keypair.fromSecretKey(
-      Buffer.from(params.ephPrivate, "base64")
-    );
+      const ephemeralKeyPair = Ed25519Keypair.fromSecretKey(
+        decodeSuiPrivateKey(params.ephPrivate).secretKey
+      );
 
-    const preSign = await txb.sign({
-      client: provider,
-      signer: ephemeralKeyPair,
-    });
+      const preSign = await txb.sign({
+        client: provider,
+        signer: ephemeralKeyPair,
+      });
 
-    const zkSignature = getZkLoginSignature({
-      inputs: account.inputs,
-      maxEpoch: params.epoch,
-      userSignature: preSign.signature,
-    });
+      const zkSignature = getZkLoginSignature({
+        inputs: account.inputs,
+        maxEpoch: params.epoch,
+        userSignature: preSign.signature,
+      });
 
-    const res = await provider.executeTransactionBlock({
-      transactionBlock: preSign.bytes,
-      signature: zkSignature,
-    });
+      const res = await provider.executeTransactionBlock({
+        transactionBlock: preSign.bytes,
+        signature: zkSignature,
+      });
 
-    app.ports.sigCb.send(res.digest);
-  });
+      app.ports.sigCb.send(res.digest);
+    })().catch(console.error)
+  );
 })().catch(console.error);
 
 function getWallet(): Wallet | null {
@@ -240,7 +233,7 @@ async function zkLogin() {
     epoch: maxEpoch,
     randomness: randomness.toString(),
     ephPublic: ephemeralKeyPair.getPublicKey().toBase64(),
-    ephPrivate: ephemeralKeyPair.export().privateKey,
+    ephPrivate: ephemeralKeyPair.getSecretKey(),
   };
   const nonce = generateNonce(
     ephemeralKeyPair.getPublicKey(),
@@ -254,7 +247,8 @@ async function zkLogin() {
     }).toString(),
     client_id:
       "25769832374-famecqrhe2gkebt5fvqms2263046lj96.apps.googleusercontent.com",
-    redirect_uri: "https://zklogin-dev-redirect.vercel.app/api/auth",
+    // Need to manually copy the auth tokens from the url after redirect
+    redirect_uri: "https://sui.io/",
     response_type: "id_token",
     scope: "openid",
     nonce: nonce,
